@@ -9,7 +9,7 @@ library(tidytext)
 library(wordcloud)
 
 ticker <- 'DGSE'
-years <- 5
+years <- 30
 company.details <- company_details(ticker, type = "10-K", count = years)
 
 kable(company.details$information %>% select(name, cik, fiscal_year_end),col.names=c('Company Name', 'CIK', 'Fiscal Year End'))
@@ -38,7 +38,14 @@ parse10k <- function(uri) {
   # 10-K HTML files are very flat with a long list of nodes. This pulls all
   # the relevant nodes.
   nodes <- read_html(uri) %>% html_nodes('text') %>% xml_children()
+  
+  if(length(nodes)<100){
+    nodes <- nodes[length(nodes)] %>% xml_children()
+  }
+  
+  
   nodes <- nodes[xml_name(nodes) != "hr"]
+  
   
   # Unfortunately there isn't much of a workaround to this loop - we need
   # to track position in the file so it has to be a bit sequential...
@@ -48,7 +55,7 @@ parse10k <- function(uri) {
     filter(text != "") # way to get columns defined properly
   
   parts <- doc.parts %>%
-    filter(grepl("^part",text, ignore.case=TRUE)) %>%
+    filter(grepl("PART",text, ignore.case=FALSE)) %>%
     select(nid,text)
   #  mutate(next.nid = c(nid[-1],length(nodes)+1)) %>%
   if (parts$nid[1] > 1) {
@@ -81,6 +88,9 @@ parse10k <- function(uri) {
     mutate( part = parts$text[findInterval(nid, parts$nid)],
             item = items$text[findInterval(nid, items$nid)]) %>%
     select(nid,part,item,text)
+  
+  
+  print(parts)
   
   return(doc.parts)
 }
