@@ -9,32 +9,40 @@ library(tidytext)
 library(wordcloud)
 library(data.table)
 library(stringr)
+library(textclean)
+
+webpage <- read_html("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies")
+
+tbls <- html_nodes(webpage, "table")
+
+constitude = tbls[1]
+
+Symbols = html_table(constitude)
+
+Symbols = Symbols[[1]]
+
+Symbols = Symbols$Symbol
 
 
+count = 0
 
-ten_K_Sentimental_Analysis <- function(ticker,name){
+unable_tickers = c("BRK.B","BF.B")
+
+for (symbol in Symbols[86:length(Symbols)]) {
+  if(TRUE)
+  {
+    company_details(symbol,type = "10-K",count = 15)
+    count = count + 1
+    print(count)
+  }
+}
+
+
+ten_K_Sentimental_Analysis <- function(ticker){
   #knitr::spin_child("/Users/jiaminghuang/Downloads/10-K\ Sentimental\ Analysis.R")
-  
-  name = str_remove(name," NEW")
-  name = str_remove(name," COS")
-  #name = str_remove(name," INC")
-  
-  
-  cik = cik_search(name)
-  cik = cik[cik$company_name == name,]
-  
-  if(length(cik)>0){
-    if(nrow(cik)>0){
-      cik = cik$cik[nrow(cik)]
-      years <- 15
-      company.details <- company_details(cik, type = "10-K", count = years)
-    }
-  }
-  
-  else{
-    years <- 15
-    company.details <- company_details(ticker, type = "10-K", count = years)
-  }
+
+  years <- 15
+  company.details <- company_details(ticker, type = "10-K", count = years)
   
   
   kable(company.details$information %>% select(name, cik, fiscal_year_end),col.names=c('Company Name', 'CIK', 'Fiscal Year End'))
@@ -84,35 +92,22 @@ ten_K_Sentimental_Analysis <- function(ticker,name){
     # 10-K HTML files are very flat with a long list of nodes. This pulls all
     # the relevant nodes.
     
-    if(length(read_html(uri) %>% html_nodes('text'))>0){
-      nodes <- read_html(uri) %>% html_nodes('text') %>% xml_children()
-    }
-    else{
-      nodes <- read_html(uri) %>% html_nodes('body') %>% xml_children()
-    }
+    nodes <- read_html(uri) %>% html_node('text') %>% html_children() %>% html_children()
     
-    if(length(nodes)<length(nodes %>% xml_children())){
-      nodes <- nodes %>% xml_children()
-    }
-    
-    
-    nodes <- nodes[xml_name(nodes) != "hr"]
-    
-    #browser()
+    #nodes <- nodes[xml_name(nodes) != "hr"]
     # Unfortunately there isn't much of a workaround to this loop - we need
     # to track position in the file so it has to be a bit sequential...
     doc.parts <- tibble(nid = seq(length(nodes)),
                         node = nodes,
-                        text = xml_text(nodes) ) %>% 
+                        text =xml_text(nodes) ) %>% 
       filter(text != "") # way to get columns defined properly
     
+    doc.parts$text = replace_non_ascii(doc.parts$text)
+    
     parts <- doc.parts %>%
-      filter(grepl("(PART|Part)",text, ignore.case=FALSE)) %>%
+      filter(grepl("^(PART|Table of Contents PART) ",text, ignore.case=TRUE)) %>%
       select(nid,text)
     
-    if(nrow(parts) < 1){
-      browser()
-    }
     
     #  mutate(next.nid = c(nid[-1],length(nodes)+1)) %>%
     if (parts$nid[1] > 1) {
@@ -122,12 +117,18 @@ ten_K_Sentimental_Analysis <- function(ticker,name){
                        tibble(nid = doc.parts$nid[length(doc.parts$nid)] + 1,
                               text = "NA"))
     
+    if(nrow(parts)<10){
+      #browser()
+    }
+    
+    
+    #browser()
     if(nrow(parts)<1){
       browser()
     }
     
     items <- doc.parts %>%
-      filter(grepl("(Item|ITEM)",text, ignore.case=FALSE)) %>%
+      filter(grepl("^(Item|Table of Contents Item) ",text, ignore.case=TRUE)) %>%
       select(nid,text) %>%
       mutate(next.nid = c(nid[-1],length(nodes)+1),
              part.next = parts$nid[findInterval(nid,parts$nid) + 1],
@@ -157,7 +158,7 @@ ten_K_Sentimental_Analysis <- function(ticker,name){
       mutate( part = parts$text[findInterval(nid, parts$nid)],
               item = items$text[findInterval(nid, items$nid)]) %>%
       select(nid,part,item,text)
-    
+    #browser()
     
     print(parts)
     print(items)
@@ -184,14 +185,14 @@ ten_K_Sentimental_Analysis <- function(ticker,name){
   #  with(wordcloud(word,n,max.words = 75, use.r.layout=FALSE, rot.per=0.35))
   
   word.counts <- words %>% 
-    group_by(filing_date) %>% 
+    group_by(filing_date,part,item) %>% 
     summarize(words = n())
   
   bing <- words %>%
     inner_join(get_sentiments("bing"), by=c("word")) %>% 
-    count(filing_date, sentiment) %>%
+    count(filing_date, part,item,sentiment) %>%
     spread(sentiment,n,fill=0) %>%
-    left_join(word.counts, by=("filing_date")) %>%
+    left_join(word.counts, by=c("filing_date","part","item")) %>%
     mutate(sentiment = positive-negative,
            sentiment.ratio = sentiment/words, 
            positive.ratio = positive/words, 
@@ -250,12 +251,56 @@ SPY_Stock_Data$COMNAM = as.character(SPY_Stock_Data$COMNAM)
 
 Results = NULL
 
+count = 0
 
-for (symbol in Symbols[622:length(Symbols)]) {
-  if(TRUE){
-    result = ten_K_Sentimental_Analysis(symbol,SPY_Stock_Data[TICKER == symbol]$COMNAM[1])
+for (symbol in Symbols[238:length(Symbols)]) {
+  if(symbol !="BRK.B" & symbol != "BF.B"){
+    count = count + 1
+    result = ten_K_Sentimental_Analysis(symbol)
     Results = rbind(Results,result)
+    print(count)
+    print(symbol)
     print(Results)
   }
 }
 
+
+SymbSentimental_Data <- as.data.table(read.csv("SP500_Sentimental_Data.csv"))
+setkey(Sentimental_Data,TICKER,Year)
+SPY_Stock_Data <- as.data.table(read.csv("SPY_CRSP_Stock.csv"))
+SPY_Stock_Data$date = as.Date(as.character(SPY_Stock_Data$date),format = "%Y%m%d")
+SPY_Stock_Data[,Month:=month(SPY_Stock_Data$date)]
+SPY_Stock_Data[,Year:=year(SPY_Stock_Data$date)]
+SPY_Stock_Data$date = NULL
+
+SPY_Stock_Data[TICKER == "WMI"]$TICKER = "WM"
+SPY_Stock_Data[TICKER == "Q"]$COMNAM = "QUINTILES TRANSNATIONAL HOLDINGS INC"
+SPY_Stock_Data[TICKER == "MHP"]$COMNAM = "MCGRAW HILL INC"
+SPY_Stock_Data[TICKER == "FPL"]$COMNAM = "FPL GROUP INC"
+SPY_Stock_Data[TICKER == "CEFT"]$COMNAM = "CONCORD EFS INC"
+SPY_Stock_Data[TICKER == "SNS"]$COMNAM = "STEAK N SHAKE OPERATIONS INC"
+SPY_Stock_Data[TICKER == "CUM"]$COMNAM = "CUMMINS ENGINE CO INC"
+SPY_Stock_Data[TICKER == "TYC"]$COMNAM = "TYCO INTERNATIONAL LTD"
+SPY_Stock_Data[TICKER == "SBC"]$COMNAM = "SBC COMMUNICATIONS INC"
+SPY_Stock_Data[TICKER == "MNS"]$COMNAM = "MSC SOFTWARE CORP"
+SPY_Stock_Data[TICKER == "IDPH"]$COMNAM = "IDEC PHARMACEUTICALS CORP"
+SPY_Stock_Data[TICKER == "FD"]$COMNAM = "FEDERATED DEPARTMENT STORES INC"
+SPY_Stock_Data[TICKER == "WMIH"]$COMNAM = "WMIH CORP"
+SPY_Stock_Data[TICKER == "PLI"]$COMNAM = "PROLIANCE INTERNATIONAL"
+SPY_Stock_Data[TICKER == "TMPW"]$COMNAM = "TMP WORLDWIDE INC"
+SPY_Stock_Data[TICKER == "AMB"]$COMNAM = "AMB PROPERTY CORP"
+SPY_Stock_Data[TICKER == "WSH"]$COMNAM = "WILLIS GROUP HOLDINGS LTD"
+SPY_Stock_Data[TICKER == "CNTE"]$COMNAM = "CENTENE CORP"
+SPY_Stock_Data[TICKER == "CBG"]$COMNAM = "CB RICHARD ELLIS GROUP INC"
+SPY_Stock_Data[TICKER == "UARM"]$COMNAM = "UNDER ARM"
+SPY_Stock_Data[TICKER == "MXB"]$COMNAM =  "MSCI INC"
+SPY_Stock_Data[TICKER == "MSCI"]$COMNAM =  "MSCI INC"
+
+SPY_Stock_Data$TICKER = as.character(SPY_Stock_Data$TICKER)
+SPY_Stock_Data$COMNAM = as.character(SPY_Stock_Data$COMNAM)
+
+setkey(SPY_Stock_Data,TICKER,Year)
+
+SPY_Stock_ALL_Data = merge(SPY_Stock_Data,Sentimental_Data,all.x = TRUE)
+
+fwrite(SPY_Stock_ALL_Data,"SPY_Stock_ALL_Data.csv")
